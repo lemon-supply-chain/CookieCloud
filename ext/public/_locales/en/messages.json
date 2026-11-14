@@ -91,16 +91,10 @@
         "message": "Append Header to request for server authentication etc., one per line, format as 'Key:Value', no spaces allowed"
     },
     "syncDomainKeyword": {
-        "message": "Sync Domain Keyword · Optional"
+        "message": "Sync Domain Keyword"
     },
     "syncDomainKeywordPlaceholder": {
-        "message": "One per line, sync all domains containing the keyword, e.g., qq.com, jd.com will include all subdomains, leave blank to sync all by default"
-    },
-    "syncDomainBlacklist": {
-        "message": "Sync Domain Blacklist · Optional"
-    },
-    "syncDomainBlacklistPlaceholder": {
-        "message": "The blacklist only takes effect when the sync domain keyword is empty. One domain per line, matching domains will not be synced"
+        "message": "One domain per line, e.g., qq.com or jd.com, including all subdomains. Leave blank to sync nothing."
     },
     "cookieKeepLive": {
         "message": "Cookie Keep Alive · Optional"

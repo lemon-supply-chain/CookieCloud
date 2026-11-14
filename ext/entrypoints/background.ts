@@ -1,8 +1,24 @@
-import { upload_cookie, download_cookie, load_data, save_data, sleep } from '../utils/functions';
+import { upload_cookie, download_cookie, load_data, sleep, sync_local_storage_tab } from '../utils/functions';
+import { handleConfigMessage } from '../utils/messaging';
 import browser from 'webextension-polyfill';
 
 export default defineBackground(() => {
   console.log('CookieCloud Background Script Started', { id: browser.runtime.id });
+
+  browser.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'sync-config') {
+      return handleConfigMessage(message.payload);
+    }
+  });
+
+  browser.tabs.onUpdated.addListener((tab_id, change_info, tab) => {
+    if (change_info.status !== 'complete' || !tab.url) return;
+    const url = tab.url;
+    void (async () => {
+      const config = await load_data('COOKIE_SYNC_SETTING');
+      if (config) await sync_local_storage_tab(tab_id, url, config);
+    })().catch(error => console.error('Local Storage sync failed', tab_id, error));
+  });
 
   browser.runtime.onInstalled.addListener(function (details) {
     if (details.reason == "install") {

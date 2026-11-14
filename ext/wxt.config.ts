@@ -12,6 +12,7 @@ export default defineConfig({
       'cookies',
       'tabs', 
       'storage',
+      'scripting',
       'alarms',
       'unlimitedStorage'
     ],

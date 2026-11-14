@@ -1,5 +1,6 @@
 import CryptoJS from 'crypto-js';
 import { gzip } from 'pako';
+import { matches_sync_domain, parse_sync_domains } from './domains';
 
 interface CookieData {
   [domain: string]: any[];
@@ -9,20 +10,23 @@ interface LocalStorageData {
   [key: string]: any;
 }
 
-interface UploadPayload {
+interface LocalStorageSyncConfig {
+  type?: string;
+  domains?: string;
+  with_storage?: number;
+}
+
+interface UploadPayload extends LocalStorageSyncConfig {
   uuid: string;
   password: string;
   endpoint: string;
-  domains?: string;
-  blacklist?: string;
-  with_storage?: number;
   headers?: string;
   no_cache?: number;
   expire_minutes?: number;
   crypto_type?: string;
 }
 
-interface DownloadPayload {
+interface DownloadPayload extends LocalStorageSyncConfig {
   uuid: string;
   password: string;
   endpoint: string;
@@ -143,12 +147,16 @@ export async function upload_cookie(payload: UploadPayload): Promise<any> {
     showBadge("err");
     return false;
   }
-  const domains = payload.domains?.trim().length ? payload.domains.trim().split("\n") : [];
+  const domains = parse_sync_domains(payload.domains);
+  if (domains.length === 0) {
+    return { action: 'done', note: 'No sync domains configured, nothing to upload' };
+  }
 
-  const blacklist = payload.blacklist?.trim().length ? payload.blacklist.trim().split("\n") : [];
-
-  const cookies = await get_cookie_by_domains(domains, blacklist);
+  const cookies = await get_cookie_by_domains(domains);
   const with_storage = payload['with_storage'] || 0;
+  if (with_storage) {
+    await sync_local_storage_tabs({ ...payload, type: 'up' });
+  }
   const local_storages = with_storage ? await get_local_storage_by_domains(domains) : {};
 
   let headers: any = { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' }
@@ -277,10 +285,12 @@ export async function download_cookie(payload: DownloadPayload): Promise<any> {
       console.log("local_storage_data", local_storage_data);
       if (local_storage_data) {
         for (let domain in local_storage_data) {
+          if (!matches_sync_domain(domain, parse_sync_domains(payload.domains))) continue;
           const key = 'LS-' + domain;
           await save_data(key, local_storage_data[domain]);
           console.log("save local storage", key, local_storage_data[domain]);
         }
+        await sync_local_storage_tabs({ ...payload, type: 'down' });
       }
 
       return { action };
@@ -340,65 +350,78 @@ function cookie_encrypt(uuid: string, data: string, password: string, crypto_typ
 
 export async function get_local_storage_by_domains(domains: string[] = []): Promise<LocalStorageData> {
   let ret_storage: LocalStorageData = {};
+  if (domains.length === 0) return ret_storage;
   const local_storages = await browser_load_all('LS-');
-  if (Array.isArray(domains) && domains.length > 0) {
-    for (const domain of domains) {
-      for (const key in local_storages) {
-        if (key.indexOf(domain) >= 0) {
-          console.log("domain matched", domain, key);
-          ret_storage[key] = local_storages[key];
-        }
-      }
+  for (const key in local_storages) {
+    if (matches_sync_domain(key, domains)) {
+      ret_storage[key] = local_storages[key];
     }
   }
   return ret_storage;
 }
 
-async function get_cookie_by_domains(domains: string[] = [], blacklist: string[] = []): Promise<CookieData> {
+async function get_cookie_by_domains(domains: string[] = []): Promise<CookieData> {
   let ret_cookies: CookieData = {};
-  // Get cookies
   if (browser.cookies) {
-    const cookies = await browser.cookies.getAll({ partitionKey: {} });
-    // console.log("cookies", cookies);
-    if (Array.isArray(domains) && domains.length > 0) {
-      console.log("domains", domains);
-      for (const domain of domains) {
-        ret_cookies[domain] = [];
-        for (const cookie of cookies) {
-          if (cookie.domain?.includes(domain)) {
-            ret_cookies[domain].push(cookie);
-          }
-        }
-      }
+    for (const domain of domains) {
+      ret_cookies[domain] = await browser.cookies.getAll({ domain, partitionKey: {} });
     }
-    else {
-      console.log("domains is empty");
-      for (const cookie of cookies) {
-        // console.log("the cookie", cookie);
-        if (cookie.domain) {
-
-          let in_blacklist = false;
-          for (const black of blacklist) {
-            if (cookie.domain.includes(black)) {
-              console.log("blacklist matched", cookie.domain, black);
-              in_blacklist = true;
-            }
-          }
-
-          if (!in_blacklist) {
-            if (!ret_cookies[cookie.domain]) {
-              ret_cookies[cookie.domain] = [];
-            }
-            ret_cookies[cookie.domain].push(cookie);
-          }
-        }
-
-      }
-    }
-
   }
-  // console.log( "ret_cookies", ret_cookies );
   return ret_cookies;
+}
+
+export async function sync_local_storage_tab(tab_id: number, url: string, config: LocalStorageSyncConfig): Promise<void> {
+  if (config.type === 'pause' || (config.type !== 'down' && !Number(config.with_storage))) return;
+  const domains = parse_sync_domains(config.domains);
+  let host: string;
+  try {
+    const page_url = new URL(url);
+    if (!['http:', 'https:'].includes(page_url.protocol)) return;
+    host = page_url.hostname;
+  } catch {
+    return;
+  }
+  if (!matches_sync_domain(host, domains)) return;
+
+  try {
+    const storage_key = 'LS-' + host;
+    const values = config.type === 'down' ? await load_data(storage_key) : null;
+    if (config.type === 'down' && (!values || typeof values !== 'object' || Array.isArray(values))) return;
+    const [injection] = await browser.scripting.executeScript({
+      target: { tabId: tab_id },
+      func: (expected_host: string, stored_values: Record<string, string> | null) => {
+        if (window.location.hostname !== expected_host) return null;
+        if (stored_values !== null) {
+          for (const [key, value] of Object.entries(stored_values)) {
+            window.localStorage.setItem(key, value);
+          }
+          return { restored: true, data: null };
+        }
+        const data = Object.fromEntries(Object.keys(window.localStorage).map(key => [key, window.localStorage.getItem(key)]));
+        return { restored: false, data };
+      },
+      args: [host, values]
+    });
+    if (!injection?.result) return;
+    if (injection.result.restored) {
+      await remove_data(storage_key);
+    } else {
+      await save_data(storage_key, injection.result.data);
+    }
+  } catch (error) {
+    console.error('Local Storage sync failed', tab_id, error);
+  }
+}
+
+async function sync_local_storage_tabs(config: LocalStorageSyncConfig): Promise<void> {
+  const domains = parse_sync_domains(config.domains);
+  if (domains.length === 0) return;
+  const tabs = await browser.tabs.query({ url: domains.map(domain => `*://*.${domain}/*`) });
+  for (const tab of tabs) {
+    if (tab.id !== undefined && tab.url && tab.status === 'complete') {
+      await sync_local_storage_tab(tab.id, tab.url, config);
+    }
+  }
 }
 
 function buildUrl(secure: boolean, domain: string, path: string): string {

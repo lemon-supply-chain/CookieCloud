@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { load_data, save_data } from '../../utils/functions';
-import { handleConfigMessage } from '../../utils/messaging';
+import { sendConfigMessage } from '../../utils/messaging';
 import short_uid from 'short-uuid';
 import browser from 'webextension-polyfill';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
@@ -21,7 +21,6 @@ interface ConfigData {
   type: string;
   keep_live: string;
   with_storage: number;
-  blacklist: string;
   headers: string;
   expire_minutes: number;
   crypto_type: string;
@@ -37,7 +36,6 @@ const CookieCloudPopup: React.FC = () => {
     type: "up",
     keep_live: "",
     with_storage: 1,
-    blacklist: "google.com",
     headers: "",
     expire_minutes: 60 * 24 * 365,
     crypto_type: "legacy"
@@ -48,6 +46,7 @@ const CookieCloudPopup: React.FC = () => {
       try {
         const savedData = await load_data("COOKIE_SYNC_SETTING");
         if (savedData) {
+          delete savedData.blacklist;
           // 旧版本 popup 把 radio/number 输入存成字符串；这里归一化成数字，
           // 否则 with_storage === 1 之类的严格比较会让控件显示成未选中。
           if (savedData.with_storage !== undefined) {
@@ -89,7 +88,7 @@ const CookieCloudPopup: React.FC = () => {
     }
     
     try {
-      const ret = await handleConfigMessage({ ...data, no_cache: 1 });
+      const ret = await sendConfigMessage({ ...data, no_cache: 1 });
       console.log(action + " returned", ret);
       
       if (ret && ret.message === 'done') {
@@ -333,6 +332,18 @@ const CookieCloudPopup: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  {browser.i18n.getMessage('syncDomainKeyword') || 'Sync Domain Keyword'}
+                </label>
+                <textarea
+                  className="form-textarea"
+                  placeholder={browser.i18n.getMessage('syncDomainKeywordPlaceholder') || 'One domain per line, including subdomains. Leave blank to sync nothing.'}
+                  value={data.domains}
+                  onChange={(e) => handleInputChange('domains', e.target.value)}
+                />
+              </div>
+
               {data.type === 'up' && (
                 <>
                   {/* Sync LocalStorage */}
@@ -376,32 +387,6 @@ const CookieCloudPopup: React.FC = () => {
                       placeholder={browser.i18n.getMessage('requestHeaderPlaceholder') || '在请求时追加Header，用于服务端鉴权等场景，一行一个，格式为\'Key:Value\'，不能有空格'}
                       value={data.headers}
                       onChange={(e) => handleInputChange('headers', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Domain Filter */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">
-                      {browser.i18n.getMessage('syncDomainKeyword') || '同步域名关键词·选填'}
-                    </label>
-                    <textarea
-                      className="form-textarea"
-                      placeholder={browser.i18n.getMessage('syncDomainKeywordPlaceholder') || '一行一个，同步包含关键词的全部域名，如qq.com,jd.com会包含全部子域名，留空默认同步全部'}
-                      value={data.domains}
-                      onChange={(e) => handleInputChange('domains', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Blacklist */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">
-                      {browser.i18n.getMessage('syncDomainBlacklist') || '同步域名黑名单·选填'}
-                    </label>
-                    <textarea
-                      className="form-textarea"
-                      placeholder={browser.i18n.getMessage('syncDomainBlacklistPlaceholder') || '黑名单仅在同步域名关键词为空时生效。一行一个域名，匹配则不参与同步'}
-                      value={data.blacklist}
-                      onChange={(e) => handleInputChange('blacklist', e.target.value)}
                     />
                   </div>
 

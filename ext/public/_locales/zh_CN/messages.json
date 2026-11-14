@@ -118,19 +118,11 @@
     },
     "syncDomainKeyword":
     {
-        "message":"同步域名关键词·选填"
+        "message":"同步域名关键词"
     },
     "syncDomainKeywordPlaceholder":
     {
-        "message":"一行一个，同步包含关键词的全部域名，如qq.com,jd.com会包含全部子域名，留空默认同步全部"
-    },
-    "syncDomainBlacklist":
-    {
-        "message":"同步域名黑名单·选填"
-    },
-    "syncDomainBlacklistPlaceholder":
-    {
-        "message":"黑名单仅在同步域名关键词为空时生效。一行一个域名，匹配则不参与同步"
+        "message":"一行一个域名，如qq.com、jd.com，包含全部子域名；留空不进行同步。"
     },
     "cookieKeepLive":
     {
